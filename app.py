@@ -24,6 +24,10 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 # Batas maksimum karakter CSV yang dikirim ke model
 MAX_CSV_CHARS = 80000
 
+# Tabel sumber & tabel riwayat
+SOURCE_TABLE = "liturgi.`01_curated`.pdf_liturgi_ai_analysis"
+HISTORY_TABLE = "liturgi.`02_app`.liturgi_ai_qa_history"
+
 
 # =========================
 # Fungsi ambil data liturgi
@@ -35,7 +39,92 @@ def load_liturgi(limit_rows: int = 100) -> pd.DataFrame:
     """
     query = f"""
         SELECT *
-        FROM liturgi.`01_curated`.pdf_liturgi_ai_analysis
+        FROM {SOURCE_TABLE}
+        LIMIT {limit_rows}
+    """
+
+    with sql.connect(
+        server_hostname=DATABRICKS_SERVER_HOSTNAME,
+        http_path=DATABRICKS_HTTP_PATH,
+        access_token=DATABRICKS_TOKEN,
+    ) as connection:
+        df = pd.read_sql(query, connection)
+
+    return df
+
+
+# =========================
+# Fungsi simpan & baca riwayat
+# =========================
+def save_history(
+    limit_rows: int,
+    user_instruction: str,
+    full_prompt: str,
+    answer: str,
+    model_name: str = "gpt-5.1",
+):
+    """
+    Simpan Q&A ke tabel riwayat di Databricks.
+    """
+    # Untuk jaga-jaga, batasi panjang prompt & jawaban
+    max_len = 65000
+    prompt_trimmed = full_prompt[:max_len]
+    answer_trimmed = answer[:max_len]
+
+    insert_sql = f"""
+        INSERT INTO {HISTORY_TABLE} (
+            asked_at,
+            source_table,
+            limit_rows,
+            user_instruction,
+            prompt_sent,
+            answer,
+            model
+        )
+        VALUES (
+            current_timestamp(),
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?
+        )
+    """
+
+    with sql.connect(
+        server_hostname=DATABRICKS_SERVER_HOSTNAME,
+        http_path=DATABRICKS_HTTP_PATH,
+        access_token=DATABRICKS_TOKEN,
+    ) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                insert_sql,
+                (
+                    SOURCE_TABLE,
+                    int(limit_rows),
+                    user_instruction,
+                    prompt_trimmed,
+                    answer_trimmed,
+                    model_name,
+                ),
+            )
+
+
+def load_history(limit_rows: int = 50) -> pd.DataFrame:
+    """
+    Ambil riwayat Q&A dari tabel riwayat.
+    """
+    query = f"""
+        SELECT
+          id,
+          asked_at,
+          limit_rows,
+          user_instruction,
+          answer,
+          model
+        FROM {HISTORY_TABLE}
+        ORDER BY asked_at DESC
         LIMIT {limit_rows}
     """
 
@@ -96,13 +185,13 @@ limit_rows = st.slider(
 
 # Prompt dari kamu (default khusus liturgi)
 default_instruction = (
-    "Tolong analisis dataset liturgi ini:\n"
+    "Tolong analisis dataset liturgi ini:\\n"
     "- Ringkas pola umum urutan liturgi dan elemen-elemen pentingnya (misalnya: pembukaan, aanvangstekst, "
-    "bacaan Alkitab, genadeverkondiging, prediking, dankofferande, slotlied).\n"
+    "bacaan Alkitab, genadeverkondiging, prediking, dankofferande, slotlied).\\n"
     "- Identifikasi pola dan variasi: misalnya lagu pembukaan yang sering dipakai, kitab/ayat yang sering muncul, "
-    "tema-tema yang tampak dari bacaan dan judul khotbah.\n"
+    "tema-tema yang tampak dari bacaan dan judul khotbah.\\n"
     "- Berikan 5–10 insight praktis yang dapat membantu tim liturgi dalam merencanakan ibadah ke depan "
-    "(misalnya keseimbangan tema, variasi lagu, keterlibatan jemaat dalam nyanyian).\n"
+    "(misalnya keseimbangan tema, variasi lagu, keterlibatan jemaat dalam nyanyian).\\n"
     "- Jelaskan dengan bahasa yang mudah dimengerti oleh tim liturgi dan majelis."
 )
 
@@ -136,7 +225,7 @@ if st.button("Kirim ke AI"):
 
     # 3. Buat prompt final
     full_prompt = f"""
-Berikut adalah data liturgi dari tabel liturgi.`01_curated`.pdf_liturgi_ai_analysis
+Berikut adalah data liturgi dari tabel {SOURCE_TABLE}
 dalam format CSV (dipotong bila terlalu panjang).
 
 INSTRUKSI SAYA:
@@ -155,3 +244,46 @@ DATA CSV:
     # 5. Tampilkan jawaban
     st.markdown("### Jawaban AI")
     st.markdown(answer)
+
+    # 6. Simpan ke riwayat
+    try:
+        save_history(
+            limit_rows=limit_rows,
+            user_instruction=user_instruction,
+            full_prompt=full_prompt,
+            answer=answer,
+            model_name="gpt-5.1",
+        )
+        st.success("Riwayat pertanyaan & jawaban berhasil disimpan.")
+    except Exception as e:
+        st.error(f"Gagal menyimpan riwayat: {e}")
+
+# =========================
+# Tampilkan Riwayat Q&A
+# =========================
+st.markdown("---")
+st.subheader("Riwayat Pertanyaan & Jawaban AI")
+
+history_limit = st.slider(
+    "Jumlah riwayat yang ditampilkan",
+    min_value=10,
+    max_value=200,
+    value=50,
+    step=10,
+)
+
+try:
+    df_history = load_history(limit_rows=history_limit)
+    if not df_history.empty:
+        # Sedikit ringkas: potong jawaban di tabel, full-nya tetap ada di df_history
+        df_hist_display = df_history.copy()
+        df_hist_display["answer_preview"] = df_hist_display["answer"].str.slice(0, 200) + "..."
+        st.dataframe(
+            df_hist_display[
+                ["id", "asked_at", "limit_rows", "user_instruction", "answer_preview", "model"]
+            ]
+        )
+    else:
+        st.info("Belum ada riwayat Q&A yang tersimpan.")
+except Exception as e:
+    st.error(f"Gagal mengambil riwayat Q&A: {e}")

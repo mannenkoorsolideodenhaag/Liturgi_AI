@@ -185,13 +185,13 @@ limit_rows = st.slider(
 
 # Prompt dari kamu (default khusus liturgi)
 default_instruction = (
-    "Tolong analisis dataset liturgi ini:\\n"
+    "Tolong analisis dataset liturgi ini:\n"
     "- Ringkas pola umum urutan liturgi dan elemen-elemen pentingnya (misalnya: pembukaan, aanvangstekst, "
-    "bacaan Alkitab, genadeverkondiging, prediking, dankofferande, slotlied).\\n"
+    "bacaan Alkitab, genadeverkondiging, prediking, dankofferande, slotlied).\n"
     "- Identifikasi pola dan variasi: misalnya lagu pembukaan yang sering dipakai, kitab/ayat yang sering muncul, "
-    "tema-tema yang tampak dari bacaan dan judul khotbah.\\n"
+    "tema-tema yang tampak dari bacaan dan judul khotbah.\n"
     "- Berikan 5–10 insight praktis yang dapat membantu tim liturgi dalam merencanakan ibadah ke depan "
-    "(misalnya keseimbangan tema, variasi lagu, keterlibatan jemaat dalam nyanyian).\\n"
+    "(misalnya keseimbangan tema, variasi lagu, keterlibatan jemaat dalam nyanyian).\n"
     "- Jelaskan dengan bahasa yang mudah dimengerti oleh tim liturgi dan majelis."
 )
 

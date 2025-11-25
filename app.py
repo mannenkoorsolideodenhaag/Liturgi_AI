@@ -185,7 +185,7 @@ st.title("GKIN Den Haag Liturgi Exploration")
 if "last_answer" not in st.session_state:
     st.session_state["last_answer"] = ""
 if "last_limit_rows" not in st.session_state:
-    st.session_state["last_limit_rows"] = 100
+    st.session_state["last_limit_rows"] = 10
 
 # =========================
 # Load data sekali di awal
@@ -204,7 +204,9 @@ if "liturgy_date" in df_liturgi_enriched.columns:
     df_liturgi_enriched["liturgy_date_parsed"] = pd.to_datetime(
         df_liturgi_enriched["liturgy_date"], errors="coerce"
     )
-    df_liturgi_enriched["liturgy_month"] = df_liturgi_enriched["liturgy_date_parsed"].dt.to_period("M").astype(str)
+    df_liturgi_enriched["liturgy_month"] = (
+        df_liturgi_enriched["liturgy_date_parsed"].dt.to_period("M").astype(str)
+    )
 else:
     df_liturgi_enriched["liturgy_month"] = "Unknown"
 
@@ -234,7 +236,7 @@ with left_col:
         if not month_counts.empty:
             month_counts = month_counts.set_index("liturgy_month")
             st.caption("Jumlah liturgi per bulan")
-            st.bar_chart(month_counts, height=260, use_container_width=True)
+            st.bar_chart(month_counts, height=260, width="stretch")
         else:
             st.info("Belum ada data liturgi untuk ditampilkan per bulan.")
 
@@ -242,7 +244,7 @@ with left_col:
     # Tabel dengan scroll internal
     st.dataframe(
         df_liturgi_enriched,
-        use_container_width=True,
+        width="stretch",
         height=350,
     )
 
@@ -250,51 +252,67 @@ with left_col:
 with right_col:
     st.subheader("Liturgi AI Assistant")
 
-    # Limit rows untuk data yang dikirim ke AI (agar CSV tidak terlalu besar)
-    slider_max = min(500, len(df_liturgi_enriched)) if len(df_liturgi_enriched) > 0 else 10
-    slider_default = min(st.session_state["last_limit_rows"], slider_max) if slider_max >= 10 else slider_max
+    n_rows = len(df_liturgi_enriched)
 
-    limit_rows_for_ai = st.slider(
-        "Jumlah baris liturgi yang dikirim ke AI",
-        min_value=10,
-        max_value=slider_max,
-        value=slider_default,
-        step=10,
-    )
-
-    default_instruction = (
-        "Tolong analisis dataset liturgi ini:\n"
-        "- Ringkas pola umum urutan liturgi dan elemen-elemen pentingnya (misalnya: pembukaan, aanvangstekst, "
-        "bacaan Alkitab, genadeverkondiging, prediking, dankofferande, slotlied).\n"
-        "- Identifikasi pola dan variasi: misalnya lagu pembukaan yang sering dipakai, kitab/ayat yang sering muncul, "
-        "tema-tema yang tampak dari bacaan dan judul khotbah.\n"
-        "- Berikan 5–10 insight praktis yang dapat membantu tim liturgi dalam merencanakan ibadah ke depan "
-        "(misalnya keseimbangan tema, variasi lagu, keterlibatan jemaat dalam nyanyian).\n"
-        "- Jelaskan dengan bahasa yang mudah dimengerti oleh tim liturgi dan majelis."
-    )
-
-    user_instruction = st.text_area(
-        "Pertanyaan / Instruksi ke AI",
-        value=default_instruction,
-        height=150,
-    )
-
-    ask_clicked = st.button("Ask AI")
-
-    if ask_clicked and len(df_liturgi_enriched) > 0:
-        # Siapkan subset data untuk AI
-        df_for_ai = df_liturgi_enriched.head(limit_rows_for_ai)
-        csv_text = df_for_ai.to_csv(index=False)
-        if len(csv_text) > MAX_CSV_CHARS:
-            csv_text_short = csv_text[:MAX_CSV_CHARS]
-            st.warning(
-                f"CSV panjangnya {len(csv_text)} karakter. "
-                f"Hanya {MAX_CSV_CHARS} karakter pertama yang dikirim ke model."
-            )
+    if n_rows <= 0:
+        st.info("Belum ada data liturgi di database untuk dianalisis.")
+    else:
+        # Limit rows untuk data yang dikirim ke AI (agar CSV tidak terlalu besar)
+        if n_rows < 10:
+            slider_min = 1
+            slider_max = n_rows
+            step = 1
         else:
-            csv_text_short = csv_text
+            slider_min = 10
+            slider_max = min(500, n_rows)
+            step = 10
 
-        full_prompt = f"""
+        # pastikan default ada di antara min dan max
+        default_val = st.session_state["last_limit_rows"]
+        if default_val < slider_min or default_val > slider_max:
+            default_val = slider_min
+
+        limit_rows_for_ai = st.slider(
+            "Jumlah baris liturgi yang dikirim ke AI",
+            min_value=slider_min,
+            max_value=slider_max,
+            value=default_val,
+            step=step,
+        )
+
+        default_instruction = (
+            "Tolong analisis dataset liturgi ini:\n"
+            "- Ringkas pola umum urutan liturgi dan elemen-elemen pentingnya (misalnya: pembukaan, aanvangstekst, "
+            "bacaan Alkitab, genadeverkondiging, prediking, dankofferande, slotlied).\n"
+            "- Identifikasi pola dan variasi: misalnya lagu pembukaan yang sering dipakai, kitab/ayat yang sering muncul, "
+            "tema-tema yang tampak dari bacaan dan judul khotbah.\n"
+            "- Berikan 5–10 insight praktis yang dapat membantu tim liturgi dalam merencanakan ibadah ke depan "
+            "(misalnya keseimbangan tema, variasi lagu, keterlibatan jemaat dalam nyanyian).\n"
+            "- Jelaskan dengan bahasa yang mudah dimengerti oleh tim liturgi dan majelis."
+        )
+
+        user_instruction = st.text_area(
+            "Pertanyaan / Instruksi ke AI",
+            value=default_instruction,
+            height=150,
+        )
+
+        ask_clicked = st.button("Ask AI")
+
+        if ask_clicked:
+            # Siapkan subset data untuk AI
+            df_for_ai = df_liturgi_enriched.head(limit_rows_for_ai)
+            csv_text = df_for_ai.to_csv(index=False)
+            if len(csv_text) > MAX_CSV_CHARS:
+                csv_text_short = csv_text[:MAX_CSV_CHARS]
+                st.warning(
+                    f"CSV panjangnya {len(csv_text)} karakter. "
+                    f"Hanya {MAX_CSV_CHARS} karakter pertama yang dikirim ke model."
+                )
+            else:
+                csv_text_short = csv_text
+
+            full_prompt = f"""
 Berikut adalah data liturgi dari tabel {SOURCE_TABLE}
 (dibatasi {limit_rows_for_ai} baris pertama) dalam format CSV
 (dipotong bila terlalu panjang).
@@ -308,54 +326,56 @@ DATA CSV:
 ```
 """.strip()
 
-        st.info("Meminta jawaban dari AI...")
-        answer = ask_chatgpt(full_prompt)
+            st.info("Meminta jawaban dari AI...")
+            answer = ask_chatgpt(full_prompt)
 
-        # Simpan ke session state
-        st.session_state["last_answer"] = answer
-        st.session_state["last_limit_rows"] = limit_rows_for_ai
+            # Simpan ke session state
+            st.session_state["last_answer"] = answer
+            st.session_state["last_limit_rows"] = limit_rows_for_ai
 
-        # Simpan ke riwayat
-        try:
-            save_history(
-                limit_rows=limit_rows_for_ai,
-                user_instruction=user_instruction,
-                full_prompt=full_prompt,
-                answer=answer,
-                model_name="gpt-5.1",
-            )
-            st.success("Riwayat pertanyaan & jawaban berhasil disimpan.")
-        except Exception as e:
-            st.error(f"Gagal menyimpan riwayat: {e}")
+            # Simpan ke riwayat
+            try:
+                save_history(
+                    limit_rows=limit_rows_for_ai,
+                    user_instruction=user_instruction,
+                    full_prompt=full_prompt,
+                    answer=answer,
+                    model_name="gpt-5.1",
+                )
+                st.success("Riwayat pertanyaan & jawaban berhasil disimpan.")
+            except Exception as e:
+                st.error(f"Gagal menyimpan riwayat: {e}")
 
-    # Tampilkan jawaban terakhir
-    st.markdown("### Jawaban AI (Terakhir)")
-    if st.session_state["last_answer"]:
-        st.text_area(
-            "Jawaban AI",
-            value=st.session_state["last_answer"],
-            height=180,
-        )
-    else:
-        st.info("Belum ada jawaban. Silakan ajukan pertanyaan terlebih dahulu.")
-
-    st.markdown("---")
-    st.markdown("### Riwayat Pertanyaan & Jawaban")
-
-    history_limit = 30  # fixed number to keep UI compact
-    try:
-        df_history = load_history(limit_rows=history_limit)
-        if not df_history.empty:
-            df_hist_display = df_history.copy()
-            df_hist_display["answer_preview"] = df_hist_display["answer"].str.slice(0, 120) + "..."
-            st.dataframe(
-                df_hist_display[
-                    ["id", "asked_at", "limit_rows", "user_instruction", "answer_preview", "model"]
-                ],
-                use_container_width=True,
-                height=220,
+        # Tampilkan jawaban terakhir
+        st.markdown("### Jawaban AI (Terakhir)")
+        if st.session_state["last_answer"]:
+            st.text_area(
+                "Jawaban AI",
+                value=st.session_state["last_answer"],
+                height=180,
             )
         else:
-            st.info("Belum ada riwayat Q&A yang tersimpan.")
-    except Exception as e:
-        st.error(f"Gagal mengambil riwayat Q&A: {e}")
+            st.info("Belum ada jawaban. Silakan ajukan pertanyaan terlebih dahulu.")
+
+        st.markdown("---")
+        st.markdown("### Riwayat Pertanyaan & Jawaban")
+
+        history_limit = 30  # fixed number to keep UI compact
+        try:
+            df_history = load_history(limit_rows=history_limit)
+            if not df_history.empty:
+                df_hist_display = df_history.copy()
+                df_hist_display["answer_preview"] = (
+                    df_hist_display["answer"].str.slice(0, 120) + "..."
+                )
+                st.dataframe(
+                    df_hist_display[
+                        ["id", "asked_at", "limit_rows", "user_instruction", "answer_preview", "model"]
+                    ],
+                    width="stretch",
+                    height=220,
+                )
+            else:
+                st.info("Belum ada riwayat Q&A yang tersimpan.")
+        except Exception as e:
+            st.error(f"Gagal mengambil riwayat Q&A: {e}")

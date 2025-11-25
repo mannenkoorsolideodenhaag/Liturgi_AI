@@ -162,63 +162,13 @@ def ask_chatgpt(full_prompt: str) -> str:
 
 st.set_page_config(page_title="Liturgi AI", layout="wide")
 
-# Theming to roughly match GKIN website (blue/white, soft grey background)
+# Minimal vertical padding so content fits nicely on one screen
 st.markdown(
     """
     <style>
-    body {
-        background-color: #e8eff7;
-    }
     .block-container {
         padding-top: 1rem;
         padding-bottom: 1rem;
-        background-color: #f5f7fb;
-    }
-    h1, h2, h3, h4 {
-        color: #004b8d;
-    }
-    /* Subheader spacing */
-    h2 {
-        margin-top: 0.5rem;
-        margin-bottom: 0.4rem;
-    }
-    /* Metric card look */
-    [data-testid="stMetric"] {
-        background-color: #ffffff;
-        border-radius: 10px;
-        border: 1px solid #d0d8ea;
-        padding: 0.4rem 0.8rem;
-    }
-    /* Buttons */
-    .stButton>button {
-        background-color: #004b8d;
-        color: #ffffff;
-        border-radius: 999px;
-        border: none;
-        padding: 0.35rem 1.1rem;
-        font-weight: 500;
-    }
-    .stButton>button:hover {
-        background-color: #003463;
-        color: #ffffff;
-    }
-    /* Dataframe container */
-    [data-testid="stDataFrame"] {
-        border-radius: 10px;
-        border: 1px solid #d0d8ea;
-        background-color: #ffffff;
-    }
-    /* Text areas */
-    textarea {
-        border-radius: 8px !important;
-        border: 1px solid #c1cbe0 !important;
-    }
-    /* Horizontal line */
-    hr {
-        border: none;
-        border-top: 1px solid #d0d8ea;
-        margin-top: 0.5rem;
-        margin-bottom: 0.5rem;
     }
     </style>
     """,

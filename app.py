@@ -30,24 +30,30 @@ HISTORY_TABLE = "liturgi.`02_app`.liturgi_ai_qa_history"
 
 
 # =========================
+# Fungsi util Databricks
+# =========================
+def _get_connection():
+    return sql.connect(
+        server_hostname=DATABRICKS_SERVER_HOSTNAME,
+        http_path=DATABRICKS_HTTP_PATH,
+        access_token=DATABRICKS_TOKEN,
+    )
+
+
+# =========================
 # Fungsi ambil data liturgi
 # =========================
-def load_liturgi(limit_rows: int = 100) -> pd.DataFrame:
+def load_liturgi() -> pd.DataFrame:
     """
-    Ambil data dari tabel liturgi.`01_curated`.pdf_liturgi_ai_analysis
-    dan kembalikan sebagai pandas DataFrame.
+    Ambil seluruh data (atau sebagian besar) dari tabel liturgi.`01_curated`.pdf_liturgi_ai_analysis.
+    Jika datanya sangat besar, bisa ditambahkan LIMIT di query.
     """
     query = f"""
         SELECT *
         FROM {SOURCE_TABLE}
-        LIMIT {limit_rows}
     """
 
-    with sql.connect(
-        server_hostname=DATABRICKS_SERVER_HOSTNAME,
-        http_path=DATABRICKS_HTTP_PATH,
-        access_token=DATABRICKS_TOKEN,
-    ) as connection:
+    with _get_connection() as connection:
         df = pd.read_sql(query, connection)
 
     return df
@@ -66,7 +72,6 @@ def save_history(
     """
     Simpan Q&A ke tabel riwayat di Databricks.
     """
-    # Untuk jaga-jaga, batasi panjang prompt & jawaban
     max_len = 65000
     prompt_trimmed = full_prompt[:max_len]
     answer_trimmed = answer[:max_len]
@@ -92,11 +97,7 @@ def save_history(
         )
     """
 
-    with sql.connect(
-        server_hostname=DATABRICKS_SERVER_HOSTNAME,
-        http_path=DATABRICKS_HTTP_PATH,
-        access_token=DATABRICKS_TOKEN,
-    ) as connection:
+    with _get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 insert_sql,
@@ -128,11 +129,7 @@ def load_history(limit_rows: int = 50) -> pd.DataFrame:
         LIMIT {limit_rows}
     """
 
-    with sql.connect(
-        server_hostname=DATABRICKS_SERVER_HOSTNAME,
-        http_path=DATABRICKS_HTTP_PATH,
-        access_token=DATABRICKS_TOKEN,
-    ) as connection:
+    with _get_connection() as connection:
         df = pd.read_sql(query, connection)
 
     return df
@@ -165,68 +162,142 @@ def ask_chatgpt(full_prompt: str) -> str:
 # =========================
 # STREAMLIT UI
 # =========================
+
 st.set_page_config(page_title="Liturgi AI", layout="wide")
 
-st.title("GKIN Den Haag Liturgi AI Prompt")
-st.write(
-    "Aplikasi AI GKIN Den Haag yang menganalisis seluruh data liturgi kebaktian "
-    "dari PDF liturgi mingguan, disimpan di Databricks, distrukturisasi, dan "
-    "dianalisis oleh OpenAI model 5.1."
+# Sedikit CSS untuk mengurangi scroll utama dan memberi tinggi tetap pada beberapa komponen
+st.markdown(
+    """
+    <style>
+    /* Kurangi padding atas-bawah supaya konten muat di layar */
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
-# Pilih jumlah baris
-limit_rows = st.slider(
-    "Jumlah baris yang diambil dari tabel Databricks",
-    min_value=10,
-    max_value=500,
-    value=100,
-    step=10,
-)
+st.title("GKIN Den Haag Liturgi Exploration")
 
-# Prompt dari kamu (default khusus liturgi)
-default_instruction = (
-    "Tolong analisis dataset liturgi ini:\n"
-    "- Ringkas pola umum urutan liturgi dan elemen-elemen pentingnya (misalnya: pembukaan, aanvangstekst, "
-    "bacaan Alkitab, genadeverkondiging, prediking, dankofferande, slotlied).\n"
-    "- Identifikasi pola dan variasi: misalnya lagu pembukaan yang sering dipakai, kitab/ayat yang sering muncul, "
-    "tema-tema yang tampak dari bacaan dan judul khotbah.\n"
-    "- Berikan 5–10 insight praktis yang dapat membantu tim liturgi dalam merencanakan ibadah ke depan "
-    "(misalnya keseimbangan tema, variasi lagu, keterlibatan jemaat dalam nyanyian).\n"
-    "- Jelaskan dengan bahasa yang mudah dimengerti oleh tim liturgi dan majelis."
-)
+# Inisialisasi session state untuk jawaban terakhir
+if "last_answer" not in st.session_state:
+    st.session_state["last_answer"] = ""
+if "last_limit_rows" not in st.session_state:
+    st.session_state["last_limit_rows"] = 100
 
-user_instruction = st.text_area(
-    "Instruksi / Prompt ke AI",
-    value=default_instruction,
-    height=260,
-)
+# =========================
+# Load data sekali di awal
+# =========================
+@st.cache_data(show_spinner=True)
+def load_liturgi_cached():
+    df_lit = load_liturgi()
+    return df_lit
 
-st.markdown("---")
 
-if st.button("Kirim ke AI"):
-    # 1. Ambil data dari Databricks
-    with st.spinner("Mengambil data liturgi dari Databricks..."):
-        df = load_liturgi(limit_rows=limit_rows)
+df_liturgi = load_liturgi_cached()
 
-    st.success(f"Berhasil ambil {len(df)} baris dan {len(df.columns)} kolom.")
-    st.subheader("Preview Data (5 baris pertama)")
-    st.dataframe(df.head())
+# Tambahkan kolom tanggal/bulan jika ada liturgy_date
+df_liturgi_enriched = df_liturgi.copy()
+if "liturgy_date" in df_liturgi_enriched.columns:
+    df_liturgi_enriched["liturgy_date_parsed"] = pd.to_datetime(
+        df_liturgi_enriched["liturgy_date"], errors="coerce"
+    )
+    df_liturgi_enriched["liturgy_month"] = df_liturgi_enriched["liturgy_date_parsed"].dt.to_period("M").astype(str)
+else:
+    df_liturgi_enriched["liturgy_month"] = "Unknown"
 
-    # 2. Convert ke CSV dan batasi panjang
-    csv_text = df.to_csv(index=False)
-    if len(csv_text) > MAX_CSV_CHARS:
-        csv_text_short = csv_text[:MAX_CSV_CHARS]
-        st.warning(
-            f"CSV panjangnya {len(csv_text)} karakter. "
-            f"Hanya {MAX_CSV_CHARS} karakter pertama yang dikirim ke model."
+# =========================
+# Layout utama: dua kolom
+# =========================
+left_col, right_col = st.columns([2, 2])
+
+# ---------- LEFT: DASHBOARD DATA LITURGI ----------
+with left_col:
+    st.subheader("Liturgi Overview")
+
+    top_left, top_right = st.columns(2)
+
+    with top_left:
+        total_liturgi = len(df_liturgi_enriched)
+        st.metric("Jumlah Liturgi di Database", total_liturgi)
+
+    with top_right:
+        # Aggregasi per bulan
+        month_counts = (
+            df_liturgi_enriched.groupby("liturgy_month")
+            .size()
+            .reset_index(name="jumlah_liturgi")
+            .sort_values("liturgy_month")
         )
-    else:
-        csv_text_short = csv_text
+        if not month_counts.empty:
+            month_counts = month_counts.set_index("liturgy_month")
+            st.caption("Jumlah liturgi per bulan")
+            st.bar_chart(month_counts, height=260, use_container_width=True)
+        else:
+            st.info("Belum ada data liturgi untuk ditampilkan per bulan.")
 
-    # 3. Buat prompt final
-    full_prompt = f"""
+    st.subheader("Detail Liturgi")
+    # Tabel dengan scroll internal
+    st.dataframe(
+        df_liturgi_enriched,
+        use_container_width=True,
+        height=350,
+    )
+
+# ---------- RIGHT: AI PROMPT & HISTORY ----------
+with right_col:
+    st.subheader("Liturgi AI Assistant")
+
+    # Limit rows untuk data yang dikirim ke AI (agar CSV tidak terlalu besar)
+    slider_max = min(500, len(df_liturgi_enriched)) if len(df_liturgi_enriched) > 0 else 10
+    slider_default = min(st.session_state["last_limit_rows"], slider_max) if slider_max >= 10 else slider_max
+
+    limit_rows_for_ai = st.slider(
+        "Jumlah baris liturgi yang dikirim ke AI",
+        min_value=10,
+        max_value=slider_max,
+        value=slider_default,
+        step=10,
+    )
+
+    default_instruction = (
+        "Tolong analisis dataset liturgi ini:\n"
+        "- Ringkas pola umum urutan liturgi dan elemen-elemen pentingnya (misalnya: pembukaan, aanvangstekst, "
+        "bacaan Alkitab, genadeverkondiging, prediking, dankofferande, slotlied).\n"
+        "- Identifikasi pola dan variasi: misalnya lagu pembukaan yang sering dipakai, kitab/ayat yang sering muncul, "
+        "tema-tema yang tampak dari bacaan dan judul khotbah.\n"
+        "- Berikan 5–10 insight praktis yang dapat membantu tim liturgi dalam merencanakan ibadah ke depan "
+        "(misalnya keseimbangan tema, variasi lagu, keterlibatan jemaat dalam nyanyian).\n"
+        "- Jelaskan dengan bahasa yang mudah dimengerti oleh tim liturgi dan majelis."
+    )
+
+    user_instruction = st.text_area(
+        "Pertanyaan / Instruksi ke AI",
+        value=default_instruction,
+        height=150,
+    )
+
+    ask_clicked = st.button("Ask AI")
+
+    if ask_clicked and len(df_liturgi_enriched) > 0:
+        # Siapkan subset data untuk AI
+        df_for_ai = df_liturgi_enriched.head(limit_rows_for_ai)
+        csv_text = df_for_ai.to_csv(index=False)
+        if len(csv_text) > MAX_CSV_CHARS:
+            csv_text_short = csv_text[:MAX_CSV_CHARS]
+            st.warning(
+                f"CSV panjangnya {len(csv_text)} karakter. "
+                f"Hanya {MAX_CSV_CHARS} karakter pertama yang dikirim ke model."
+            )
+        else:
+            csv_text_short = csv_text
+
+        full_prompt = f"""
 Berikut adalah data liturgi dari tabel {SOURCE_TABLE}
-dalam format CSV (dipotong bila terlalu panjang).
+(dibatasi {limit_rows_for_ai} baris pertama) dalam format CSV
+(dipotong bila terlalu panjang).
 
 INSTRUKSI SAYA:
 {user_instruction}
@@ -237,53 +308,54 @@ DATA CSV:
 ```
 """.strip()
 
-    # 4. Panggil ChatGPT
-    st.info("Meminta jawaban dari AI...")
-    answer = ask_chatgpt(full_prompt)
+        st.info("Meminta jawaban dari AI...")
+        answer = ask_chatgpt(full_prompt)
 
-    # 5. Tampilkan jawaban
-    st.markdown("### Jawaban AI")
-    st.markdown(answer)
+        # Simpan ke session state
+        st.session_state["last_answer"] = answer
+        st.session_state["last_limit_rows"] = limit_rows_for_ai
 
-    # 6. Simpan ke riwayat
-    try:
-        save_history(
-            limit_rows=limit_rows,
-            user_instruction=user_instruction,
-            full_prompt=full_prompt,
-            answer=answer,
-            model_name="gpt-5.1",
-        )
-        st.success("Riwayat pertanyaan & jawaban berhasil disimpan.")
-    except Exception as e:
-        st.error(f"Gagal menyimpan riwayat: {e}")
+        # Simpan ke riwayat
+        try:
+            save_history(
+                limit_rows=limit_rows_for_ai,
+                user_instruction=user_instruction,
+                full_prompt=full_prompt,
+                answer=answer,
+                model_name="gpt-5.1",
+            )
+            st.success("Riwayat pertanyaan & jawaban berhasil disimpan.")
+        except Exception as e:
+            st.error(f"Gagal menyimpan riwayat: {e}")
 
-# =========================
-# Tampilkan Riwayat Q&A
-# =========================
-st.markdown("---")
-st.subheader("Riwayat Pertanyaan & Jawaban AI")
-
-history_limit = st.slider(
-    "Jumlah riwayat yang ditampilkan",
-    min_value=10,
-    max_value=200,
-    value=50,
-    step=10,
-)
-
-try:
-    df_history = load_history(limit_rows=history_limit)
-    if not df_history.empty:
-        # Sedikit ringkas: potong jawaban di tabel, full-nya tetap ada di df_history
-        df_hist_display = df_history.copy()
-        df_hist_display["answer_preview"] = df_hist_display["answer"].str.slice(0, 200) + "..."
-        st.dataframe(
-            df_hist_display[
-                ["id", "asked_at", "limit_rows", "user_instruction", "answer_preview", "model"]
-            ]
+    # Tampilkan jawaban terakhir
+    st.markdown("### Jawaban AI (Terakhir)")
+    if st.session_state["last_answer"]:
+        st.text_area(
+            "Jawaban AI",
+            value=st.session_state["last_answer"],
+            height=180,
         )
     else:
-        st.info("Belum ada riwayat Q&A yang tersimpan.")
-except Exception as e:
-    st.error(f"Gagal mengambil riwayat Q&A: {e}")
+        st.info("Belum ada jawaban. Silakan ajukan pertanyaan terlebih dahulu.")
+
+    st.markdown("---")
+    st.markdown("### Riwayat Pertanyaan & Jawaban")
+
+    history_limit = 30  # fixed number to keep UI compact
+    try:
+        df_history = load_history(limit_rows=history_limit)
+        if not df_history.empty:
+            df_hist_display = df_history.copy()
+            df_hist_display["answer_preview"] = df_hist_display["answer"].str.slice(0, 120) + "..."
+            st.dataframe(
+                df_hist_display[
+                    ["id", "asked_at", "limit_rows", "user_instruction", "answer_preview", "model"]
+                ],
+                use_container_width=True,
+                height=220,
+            )
+        else:
+            st.info("Belum ada riwayat Q&A yang tersimpan.")
+    except Exception as e:
+        st.error(f"Gagal mengambil riwayat Q&A: {e}")

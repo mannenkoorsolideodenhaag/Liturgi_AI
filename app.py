@@ -234,16 +234,17 @@ with left_col:
         if not month_counts.empty:
             month_counts = month_counts.set_index("liturgy_month")
             st.caption("Number of Liturgies per Month")
-            st.bar_chart(month_counts, height=260, width="stretch")
+            # Reduced height for more compact dashboard
+            st.bar_chart(month_counts, height=180, width="stretch")
         else:
             st.info("No liturgy data available by month yet.")
 
     st.subheader("Liturgy Details")
-    # Scrollable table within fixed height
+    # Table with compact height (roughly ~5 visible rows, rest scrollable)
     st.dataframe(
         df_liturgi_enriched,
         width="stretch",
-        height=350,
+        height=190,  # lower height so about 5 rows are visible on most screens
     )
 
 # ---------- RIGHT: AI PROMPT & HISTORY ----------
@@ -351,7 +352,7 @@ DATA CSV:
             st.text_area(
                 "AI Answer",
                 value=st.session_state["last_answer"],
-                height=180,
+                height=170,
             )
         else:
             st.info("No AI answer yet. Please ask a question first.")
@@ -372,7 +373,7 @@ DATA CSV:
                         ["id", "asked_at", "limit_rows", "user_instruction", "answer_preview", "model"]
                     ],
                     width="stretch",
-                    height=220,
+                    height=210,
                 )
             else:
                 st.info("No Q&A history available yet.")

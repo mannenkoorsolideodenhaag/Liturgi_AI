@@ -62,7 +62,6 @@ def load_liturgi() -> pd.DataFrame:
 # Save & load Q&A history
 # =========================
 def save_history(
-    limit_rows: int,
     user_instruction: str,
     full_prompt: str,
     answer: str,
@@ -88,7 +87,7 @@ def save_history(
         VALUES (
             current_timestamp(),
             ?,
-            ?,
+            NULL,
             ?,
             ?,
             ?,
@@ -102,7 +101,6 @@ def save_history(
                 insert_sql,
                 (
                     SOURCE_TABLE,
-                    int(limit_rows),
                     user_instruction,
                     prompt_trimmed,
                     answer_trimmed,
@@ -179,11 +177,9 @@ st.markdown(
 
 st.title("GKIN Den Haag Liturgy Exploration")
 
-# Session state for last answer & slider default
+# Session state for last answer
 if "last_answer" not in st.session_state:
     st.session_state["last_answer"] = ""
-if "last_limit_rows" not in st.session_state:
-    st.session_state["last_limit_rows"] = 10
 
 # =========================
 # Load liturgy data once
@@ -235,16 +231,16 @@ with left_col:
             month_counts = month_counts.set_index("liturgy_month")
             st.caption("Number of Liturgies per Month")
             # Reduced height for more compact dashboard
-            st.bar_chart(month_counts, height=180, width="stretch")
+            st.bar_chart(month_counts, height=160, width="stretch")
         else:
             st.info("No liturgy data available by month yet.")
 
     st.subheader("Liturgy Details")
-    # Table with compact height (roughly ~5 visible rows, rest scrollable)
+    # Table with compact height (~5 visible rows, rest scrollable)
     st.dataframe(
         df_liturgi_enriched,
         width="stretch",
-        height=190,  # lower height so about 5 rows are visible on most screens
+        height=190,
     )
 
 # ---------- RIGHT: AI PROMPT & HISTORY ----------
@@ -256,29 +252,6 @@ with right_col:
     if n_rows <= 0:
         st.info("No liturgy data in the database to analyze yet.")
     else:
-        # Slider configuration depends on number of rows
-        if n_rows < 10:
-            slider_min = 1
-            slider_max = n_rows
-            step = 1
-        else:
-            slider_min = 10
-            slider_max = min(500, n_rows)
-            step = 10
-
-        # Ensure default value stays within bounds
-        default_val = st.session_state["last_limit_rows"]
-        if default_val < slider_min or default_val > slider_max:
-            default_val = slider_min
-
-        limit_rows_for_ai = st.slider(
-            "Number of liturgy rows sent to AI",
-            min_value=slider_min,
-            max_value=slider_max,
-            value=default_val,
-            step=step,
-        )
-
         # Default instruction in Bahasa Indonesia (as requested)
         default_instruction = (
             "Tolong analisis dataset liturgi ini:\n"
@@ -294,14 +267,14 @@ with right_col:
         user_instruction = st.text_area(
             "Question / Instruction for the AI",
             value=default_instruction,
-            height=150,
+            height=110,  # reduced height
         )
 
         ask_clicked = st.button("Ask AI")
 
         if ask_clicked:
-            # Prepare subset of data to send to AI
-            df_for_ai = df_liturgi_enriched.head(limit_rows_for_ai)
+            # Prepare ALL liturgy data to send to AI (subject to MAX_CSV_CHARS)
+            df_for_ai = df_liturgi_enriched
             csv_text = df_for_ai.to_csv(index=False)
             if len(csv_text) > MAX_CSV_CHARS:
                 csv_text_short = csv_text[:MAX_CSV_CHARS]
@@ -313,9 +286,8 @@ with right_col:
                 csv_text_short = csv_text
 
             full_prompt = f"""
-Berikut adalah data liturgi dari tabel {SOURCE_TABLE}
-(dibatasi {limit_rows_for_ai} baris pertama) dalam format CSV
-(dipotong bila terlalu panjang).
+Berikut adalah seluruh data liturgi dari tabel {SOURCE_TABLE}
+dalam format CSV (dipotong bila terlalu panjang).
 
 INSTRUKSI SAYA:
 {user_instruction}
@@ -331,12 +303,10 @@ DATA CSV:
 
             # Save to session state
             st.session_state["last_answer"] = answer
-            st.session_state["last_limit_rows"] = limit_rows_for_ai
 
             # Save to history table
             try:
                 save_history(
-                    limit_rows=limit_rows_for_ai,
                     user_instruction=user_instruction,
                     full_prompt=full_prompt,
                     answer=answer,
@@ -352,7 +322,7 @@ DATA CSV:
             st.text_area(
                 "AI Answer",
                 value=st.session_state["last_answer"],
-                height=170,
+                height=130,  # reduced height
             )
         else:
             st.info("No AI answer yet. Please ask a question first.")
@@ -360,7 +330,8 @@ DATA CSV:
         st.markdown("---")
         st.markdown("### AI Q&A History")
 
-        history_limit = 30  # keep history compact
+        # Only show a small visible area (~3 rows), scroll within table for more
+        history_limit = 50
         try:
             df_history = load_history(limit_rows=history_limit)
             if not df_history.empty:
@@ -373,7 +344,7 @@ DATA CSV:
                         ["id", "asked_at", "limit_rows", "user_instruction", "answer_preview", "model"]
                     ],
                     width="stretch",
-                    height=210,
+                    height=130,  # compact height ~3 visible rows
                 )
             else:
                 st.info("No Q&A history available yet.")

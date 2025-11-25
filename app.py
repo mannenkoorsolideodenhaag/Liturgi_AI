@@ -301,8 +301,14 @@ DATA CSV:
 ```
 """.strip()
 
-            st.info("Requesting answer from AI...")
+            # Show temporary status while waiting for AI, then clear it
+            status_placeholder = st.empty()
+            status_placeholder.info("Requesting answer from AI...")
+
             answer = ask_chatgpt(full_prompt)
+
+            # Clear the status message once answer is received
+            status_placeholder.empty()
 
             # Save to session state
             st.session_state["last_answer"] = answer

@@ -162,13 +162,22 @@ def ask_chatgpt(full_prompt: str) -> str:
 
 st.set_page_config(page_title="Liturgi AI", layout="wide")
 
-# Minimal vertical padding so content fits nicely on one screen
+# Minimal vertical padding and vertical separator between main columns
 st.markdown(
     """
     <style>
     .block-container {
         padding-top: 1rem;
         padding-bottom: 1rem;
+        position: relative;  /* so the separator is positioned relative to main container */
+    }
+    .vertical-separator {
+        position: absolute;
+        left: 40%;            /* matches 40% width of left column (4 out of 10) */
+        top: 3.5rem;          /* a bit below the title */
+        bottom: 0.5rem;
+        border-left: 1px solid #dddddd;
+        z-index: 0;
     }
     </style>
     """,
@@ -176,6 +185,9 @@ st.markdown(
 )
 
 st.title("GKIN Den Haag Liturgy Exploration")
+
+# Draw vertical separator between left & right main columns
+st.markdown('<div class="vertical-separator"></div>', unsafe_allow_html=True)
 
 # Session state for last answer
 if "last_answer" not in st.session_state:

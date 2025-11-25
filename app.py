@@ -264,13 +264,16 @@ with right_col:
             "- Jelaskan dengan bahasa yang mudah dimengerti oleh tim liturgi dan majelis."
         )
 
-        user_instruction = st.text_area(
-            "Question / Instruction for the AI",
-            value=default_instruction,
-            height=110,  # reduced height
-        )
+        # Row 1: two columns (Question on the left, Answer on the right)
+        q_col, a_col = st.columns(2)
 
-        ask_clicked = st.button("Ask AI")
+        with q_col:
+            user_instruction = st.text_area(
+                "Question / Instruction for the AI",
+                value=default_instruction,
+                height=110,
+            )
+            ask_clicked = st.button("Ask AI")
 
         if ask_clicked:
             # Prepare ALL liturgy data to send to AI (subject to MAX_CSV_CHARS)
@@ -316,16 +319,16 @@ DATA CSV:
             except Exception as e:
                 st.error(f"Failed to save Q&A history: {e}")
 
-        # Show latest answer
-        st.markdown("### AI Answer (Latest)")
-        if st.session_state["last_answer"]:
-            st.text_area(
-                "AI Answer",
-                value=st.session_state["last_answer"],
-                height=130,  # reduced height
-            )
-        else:
-            st.info("No AI answer yet. Please ask a question first.")
+        with a_col:
+            st.markdown("**AI Answer (Latest)**")
+            if st.session_state["last_answer"]:
+                st.text_area(
+                    "AI Answer",
+                    value=st.session_state["last_answer"],
+                    height=110,
+                )
+            else:
+                st.info("No AI answer yet. Please ask a question first.")
 
         st.markdown("---")
         st.markdown("### AI Q&A History")

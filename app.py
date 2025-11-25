@@ -205,9 +205,9 @@ else:
     df_liturgi_enriched["liturgy_month"] = "Unknown"
 
 # =========================
-# Main two-column layout
+# Main two-column layout (40% : 60%)
 # =========================
-left_col, right_col = st.columns([2, 2])
+left_col, right_col = st.columns([4, 6])
 
 # ---------- LEFT: LITURGY DASHBOARD ----------
 with left_col:

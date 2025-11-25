@@ -315,20 +315,16 @@ DATA CSV:
                     answer=answer,
                     model_name="gpt-5.1",
                 )
-                st.success("Q&A history saved successfully.")
             except Exception as e:
                 st.error(f"Failed to save Q&A history: {e}")
 
         with a_col:
-            st.markdown("**AI Answer (Latest)**")
-            if st.session_state["last_answer"]:
-                st.text_area(
-                    "AI Answer",
-                    value=st.session_state["last_answer"],
-                    height=110,
-                )
-            else:
-                st.info("No AI answer yet. Please ask a question first.")
+            # Always show AI Answer text area, even before first answer
+            st.text_area(
+                "AI Answer",
+                value=st.session_state["last_answer"],
+                height=110,
+            )
 
         st.markdown("---")
         st.markdown("### AI Q&A History")

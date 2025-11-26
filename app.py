@@ -361,15 +361,13 @@ DATA CSV:
             df_history = load_history(limit_rows=history_limit)
             if not df_history.empty:
                 df_hist_display = df_history.copy()
-                df_hist_display["answer_preview"] = (
-                    df_hist_display["answer"].str.slice(0, 120) + "..."
-                )
+                # Show full answer content without truncation
                 st.dataframe(
                     df_hist_display[
-                        ["id", "asked_at", "limit_rows", "user_instruction", "answer_preview", "model"]
+                        ["id", "asked_at", "limit_rows", "user_instruction", "answer", "model"]
                     ],
                     width="stretch",
-                    height=130,  # compact height ~3 visible rows
+                    height=130,  # compact height ~3 visible rows, scroll inside table
                 )
             else:
                 st.info("No Q&A history available yet.")

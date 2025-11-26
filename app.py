@@ -47,10 +47,7 @@ def load_liturgi() -> pd.DataFrame:
     """
     Load liturgy data from the curated table.
     """
-    query = f"""
-        SELECT *
-        FROM {SOURCE_TABLE}
-    """
+    query = f"SELECT * FROM {SOURCE_TABLE}"
 
     with _get_connection() as connection:
         df = pd.read_sql(query, connection)
@@ -157,51 +154,53 @@ def ask_chatgpt(full_prompt: str) -> str:
 
 
 # =========================
+# Cached loader
+# =========================
+@st.cache_data(show_spinner=True)
+def load_liturgi_cached():
+    """
+    Cached wrapper around load_liturgi().
+    """
+    df_lit = load_liturgi()
+    return df_lit
+
+
+# =========================
 # STREAMLIT UI
 # =========================
 
 st.set_page_config(page_title="Liturgi AI", layout="wide")
 
-# Minimal vertical padding and vertical separator between main columns
+# Minimal vertical padding so content fits nicely on one screen
 st.markdown(
     """
     <style>
     .block-container {
         padding-top: 1rem;
         padding-bottom: 1rem;
-        position: relative;  /* so the separator is positioned relative to main container */
-    }
-    .vertical-separator {
-        position: absolute;
-        left: 40%;            /* matches 40% width of left column (4 out of 10) */
-        top: 3.5rem;          /* a bit below the title */
-        bottom: 0.5rem;
-        border-left: 1px solid #dddddd;
-        z-index: 0;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-st.title("GKIN Den Haag Liturgy Exploration")
-
-# Draw vertical separator between left & right main columns
-st.markdown('<div class="vertical-separator"></div>', unsafe_allow_html=True)
+# Title + Clear Cache button on the same row
+title_col, btn_col = st.columns([8, 2])
+with title_col:
+    st.title("GKIN Den Haag Liturgy Exploration")
+with btn_col:
+    if st.button("Clear Cache"):
+        # Clear the cached liturgy DataFrame and rerun the app
+        load_liturgi_cached.clear()
+        st.experimental_rerun()
 
 # Session state for last answer
 if "last_answer" not in st.session_state:
     st.session_state["last_answer"] = ""
 
 # =========================
-# Load liturgy data once
+# Load liturgy data (from cache)
 # =========================
-@st.cache_data(show_spinner=True)
-def load_liturgi_cached():
-    df_lit = load_liturgi()
-    return df_lit
-
-
 df_liturgi = load_liturgi_cached()
 
 # Enrich with date & month if available
@@ -217,9 +216,9 @@ else:
     df_liturgi_enriched["liturgy_month"] = "Unknown"
 
 # =========================
-# Main two-column layout (40% : 60%)
+# Main three-column layout (40% : separator : 60%)
 # =========================
-left_col, right_col = st.columns([4, 6])
+left_col, sep_col, right_col = st.columns([4, 0.2, 5.8])
 
 # ---------- LEFT: LITURGY DASHBOARD ----------
 with left_col:
@@ -253,6 +252,14 @@ with left_col:
         df_liturgi_enriched,
         width="stretch",
         height=190,
+    )
+
+# ---------- MIDDLE: VERTICAL SEPARATOR ----------
+with sep_col:
+    # Draw a full-height vertical line inside this narrow column
+    st.markdown(
+        "<div style='border-left: 1px solid #dddddd; height: 100vh; margin: 0 auto;'></div>",
+        unsafe_allow_html=True,
     )
 
 # ---------- RIGHT: AI PROMPT & HISTORY ----------

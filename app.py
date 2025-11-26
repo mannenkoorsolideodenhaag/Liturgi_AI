@@ -193,7 +193,7 @@ with btn_col:
     if st.button("Clear Cache"):
         # Clear the cached liturgy DataFrame and rerun the app
         load_liturgi_cached.clear()
-        st.experimental_rerun()
+        st.rerun()
 
 # Session state for last answer
 if "last_answer" not in st.session_state:

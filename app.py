@@ -172,11 +172,12 @@ def load_liturgi_cached():
 st.set_page_config(page_title="Liturgi AI", layout="wide")
 
 # Minimal vertical padding so content fits nicely on one screen
+# and ensure the Clear Cache button is not hidden by the top bar
 st.markdown(
     """
     <style>
     .block-container {
-        padding-top: 1rem;
+        padding-top: 3rem !important;
         padding-bottom: 1rem;
     }
     </style>

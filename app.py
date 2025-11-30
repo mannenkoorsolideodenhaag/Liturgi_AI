@@ -130,27 +130,48 @@ def load_history(limit_rows: int = 50) -> pd.DataFrame:
 
 
 # =========================
-# Call ChatGPT
+# Call ChatGPT (gpt-5-nano safe)
 # =========================
 def ask_chatgpt(full_prompt: str) -> str:
     """
     Send prompt to ChatGPT (gpt-5-nano) and return its answer.
+    Aman terhadap NoneType (output kosong).
     """
-    resp = client.responses.create(
-        model="gpt-5-nano",
-        input=[
-            {
-                "role": "system",
-                "content": (
-                    "You are an AI assistant that analyzes church liturgy data for GKIN. "
-                    "You answer in clear, structured Indonesian, easy to understand "
-                    "for the liturgy team and congregation."
-                ),
-            },
-            {"role": "user", "content": full_prompt},
-        ],
-    )
-    return resp.output[0].content[0].text
+    try:
+        resp = client.responses.create(
+            model="gpt-5-nano",
+            input=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an AI assistant that analyzes church liturgy data for GKIN. "
+                        "You answer in clear, structured Indonesian, easy to understand "
+                        "for the liturgy team and congregation."
+                    ),
+                },
+                {"role": "user", "content": full_prompt},
+            ],
+        )
+
+        answer = None
+
+        # Prioritas 1: gunakan output_text kalau tersedia (aman untuk nano)
+        if hasattr(resp, "output_text") and resp.output_text:
+            answer = resp.output_text
+        else:
+            # Prioritas 2: fallback ke struktur output standar jika ada
+            try:
+                answer = resp.output[0].content[0].text
+            except Exception:
+                answer = None
+
+        if not answer:
+            return "⚠️ Model returned no usable content."
+
+        return answer
+
+    except Exception as e:
+        return f"❌ OpenAI error: {str(e)}"
 
 
 # =========================

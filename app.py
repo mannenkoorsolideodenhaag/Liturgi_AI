@@ -137,7 +137,7 @@ def ask_chatgpt(full_prompt: str) -> str:
     Send prompt to ChatGPT (gpt-5.1) and return its answer.
     """
     resp = client.responses.create(
-        model="gpt-5.1",
+        model="gpt-4o",
         input=[
             {
                 "role": "system",

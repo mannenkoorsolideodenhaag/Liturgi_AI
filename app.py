@@ -62,7 +62,7 @@ def save_history(
     user_instruction: str,
     full_prompt: str,
     answer: str,
-    model_name: str = "gpt-5.1",
+    model_name: str = "gpt-5-nano",
 ):
     """
     Save Q&A to the history table in Databricks.
@@ -134,10 +134,10 @@ def load_history(limit_rows: int = 50) -> pd.DataFrame:
 # =========================
 def ask_chatgpt(full_prompt: str) -> str:
     """
-    Send prompt to ChatGPT (gpt-5.1) and return its answer.
+    Send prompt to ChatGPT (gpt-5-nano) and return its answer.
     """
     resp = client.responses.create(
-        model="gpt-4o",
+        model="gpt-5-nano",
         input=[
             {
                 "role": "system",

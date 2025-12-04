@@ -48,12 +48,13 @@ def load_liturgi() -> pd.DataFrame:
 # =========================
 def ask_chatgpt(full_prompt: str) -> str:
     """
-    Send prompt to ChatGPT (gpt-5-nano) and return its answer.
+    Send prompt to ChatGPT (gpt-5.1) and return its answer.
     Aman terhadap NoneType (output kosong).
     """
     try:
         resp = client.responses.create(
-            model="gpt-5-nano",
+            #model="gpt-5-nano",
+            model="gpt-5.1",
             input=[
                 {
                     "role": "system",

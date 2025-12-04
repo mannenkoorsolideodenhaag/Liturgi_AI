@@ -295,6 +295,3 @@ DATA CSV:
                 value=st.session_state["last_answer"],
                 height=110,
             )
-
-        st.markdown("---")
-        st.markdown("### AI Q&A History (session only)")

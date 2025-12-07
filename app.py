@@ -1,44 +1,130 @@
 import pandas as pd
 import streamlit as st
+from databricks import sql
 from openai import OpenAI
 
 # =========================
-# CONFIG
+# Secrets Configuration
 # =========================
+# In Streamlit Cloud, set them in: Settings -> Secrets
+# Example (DO NOT hardcode in code):
+# DATABRICKS_SERVER_HOSTNAME = "dbc-....cloud.databricks.com"
+# DATABRICKS_HTTP_PATH = "/sql/1.0/warehouses/xxxxxxx"
+# DATABRICKS_TOKEN = "dapiXXXXXXXX"
+# OPENAI_API_KEY = "sk-XXXXXXXX"
 
-# Lokasi CSV di dalam repo GitHub kamu
-# Contoh: file berada di folder "data/liturgi_data.csv"
-CSV_PATH = "data/liturgi_data.csv"
+DATABRICKS_SERVER_HOSTNAME = st.secrets["DATABRICKS_SERVER_HOSTNAME"]
+DATABRICKS_HTTP_PATH = st.secrets["DATABRICKS_HTTP_PATH"]
+DATABRICKS_TOKEN = st.secrets["DATABRICKS_TOKEN"]
+OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+
+# OpenAI client
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 # Max characters of CSV sent to the model
 MAX_CSV_CHARS = 80000
 
-# Label sumber data (hanya untuk teks di prompt)
-SOURCE_LABEL = f"CSV file: {CSV_PATH}"
-
-# OpenAI client
-OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
-client = OpenAI(api_key=OPENAI_API_KEY)
+# Source & history tables
+SOURCE_TABLE = "liturgi.`01_curated`.pdf_liturgi_ai_analysis"
+HISTORY_TABLE = "liturgi.`02_app`.liturgi_ai_qa_history"
 
 
 # =========================
-# Load liturgy data from CSV
+# Databricks helper
+# =========================
+def _get_connection():
+    return sql.connect(
+        server_hostname=DATABRICKS_SERVER_HOSTNAME,
+        http_path=DATABRICKS_HTTP_PATH,
+        access_token=DATABRICKS_TOKEN,
+    )
+
+
+# =========================
+# Load liturgy data
 # =========================
 def load_liturgi() -> pd.DataFrame:
     """
-    Load liturgy data from the CSV file.
+    Load liturgy data from the curated table.
     """
-    try:
-        df = pd.read_csv(CSV_PATH)
-    except FileNotFoundError:
-        st.error(
-            f"CSV file tidak ditemukan di path: {CSV_PATH}. "
-            "Pastikan file sudah di-commit ke repo dan path-nya benar."
+    query = f"SELECT * FROM {SOURCE_TABLE}"
+
+    with _get_connection() as connection:
+        df = pd.read_sql(query, connection)
+
+    return df
+
+
+# =========================
+# Save & load Q&A history
+# =========================
+def save_history(
+    user_instruction: str,
+    full_prompt: str,
+    answer: str,
+    model_name: str = "gpt-5-nano",
+):
+    """
+    Save Q&A to the history table in Databricks.
+    """
+    max_len = 65000
+    prompt_trimmed = full_prompt[:max_len]
+    answer_trimmed = answer[:max_len]
+
+    insert_sql = f"""
+        INSERT INTO {HISTORY_TABLE} (
+            asked_at,
+            source_table,
+            limit_rows,
+            user_instruction,
+            prompt_sent,
+            answer,
+            model
         )
-        st.stop()
-    except Exception as e:
-        st.error(f"Terjadi error saat membaca CSV: {e}")
-        st.stop()
+        VALUES (
+            current_timestamp(),
+            ?,
+            NULL,
+            ?,
+            ?,
+            ?,
+            ?
+        )
+    """
+
+    with _get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                insert_sql,
+                (
+                    SOURCE_TABLE,
+                    user_instruction,
+                    prompt_trimmed,
+                    answer_trimmed,
+                    model_name,
+                ),
+            )
+
+
+def load_history(limit_rows: int = 50) -> pd.DataFrame:
+    """
+    Load Q&A history from the history table.
+    """
+    query = f"""
+        SELECT
+          id,
+          asked_at,
+          limit_rows,
+          user_instruction,
+          answer,
+          model
+        FROM {HISTORY_TABLE}
+        ORDER BY asked_at DESC
+        LIMIT {limit_rows}
+    """
+
+    with _get_connection() as connection:
+        df = pd.read_sql(query, connection)
 
     return df
 
@@ -48,13 +134,12 @@ def load_liturgi() -> pd.DataFrame:
 # =========================
 def ask_chatgpt(full_prompt: str) -> str:
     """
-    Send prompt to ChatGPT (gpt-5.1) and return its answer.
+    Send prompt to ChatGPT (gpt-5-nano) and return its answer.
     Aman terhadap NoneType (output kosong).
     """
     try:
         resp = client.responses.create(
-            #model="gpt-5-nano",
-            model="gpt-5.1",
+            model="gpt-5-nano",
             input=[
                 {
                     "role": "system",
@@ -70,7 +155,7 @@ def ask_chatgpt(full_prompt: str) -> str:
 
         answer = None
 
-        # Prioritas 1: gunakan output_text kalau tersedia
+        # Prioritas 1: gunakan output_text kalau tersedia (aman untuk nano)
         if hasattr(resp, "output_text") and resp.output_text:
             answer = resp.output_text
         else:
@@ -131,17 +216,12 @@ with btn_col:
         load_liturgi_cached.clear()
         st.rerun()
 
-# Session state for last answer & history
+# Session state for last answer
 if "last_answer" not in st.session_state:
     st.session_state["last_answer"] = ""
 
-if "qa_history" not in st.session_state:
-    # List of dicts: {id, asked_at, user_instruction, answer, model}
-    st.session_state["qa_history"] = []
-
-
 # =========================
-# Load liturgy data (from cache, WHICH READS CSV)
+# Load liturgy data (from cache)
 # =========================
 df_liturgi = load_liturgi_cached()
 
@@ -157,7 +237,6 @@ if "liturgy_date" in df_liturgi_enriched.columns:
 else:
     df_liturgi_enriched["liturgy_month"] = "Unknown"
 
-
 # =========================
 # Main three-column layout (40% : separator : 60%)
 # =========================
@@ -171,7 +250,7 @@ with left_col:
 
     with top_left:
         total_liturgi = len(df_liturgi_enriched)
-        st.metric("Total Liturgies in CSV", total_liturgi)
+        st.metric("Total Liturgies in Database", total_liturgi)
 
     with top_right:
         # Aggregate by month
@@ -212,16 +291,15 @@ with right_col:
     n_rows = len(df_liturgi_enriched)
 
     if n_rows <= 0:
-        st.info("Tidak ada data liturgi di CSV untuk dianalisis.")
+        st.info("No liturgy data in the database to analyze yet.")
     else:
-        # Default instruction in Bahasa Indonesia
+        # Default instruction in Bahasa Indonesia (as requested)
         default_instruction = (
             "Tolong analisis dataset liturgi ini:\n"
-            "- Ringkas pola umum urutan liturgi dan elemen-elemen pentingnya "
-            "(misalnya: pembukaan, aanvangstekst, bacaan Alkitab, "
-            "genadeverkondiging, prediking, dankofferande, slotlied).\n"
-            "- Identifikasi pola dan variasi: misalnya lagu pembukaan yang sering dipakai, "
-            "kitab/ayat yang sering muncul, tema-tema yang tampak dari bacaan dan judul khotbah.\n"
+            "- Ringkas pola umum urutan liturgi dan elemen-elemen pentingnya (misalnya: pembukaan, aanvangstekst, "
+            "bacaan Alkitab, genadeverkondiging, prediking, dankofferande, slotlied).\n"
+            "- Identifikasi pola dan variasi: misalnya lagu pembukaan yang sering dipakai, kitab/ayat yang sering muncul, "
+            "tema-tema yang tampak dari bacaan dan judul khotbah.\n"
             "- Berikan 5–10 insight praktis yang dapat membantu tim liturgi dalam merencanakan ibadah ke depan "
             "(misalnya keseimbangan tema, variasi lagu, keterlibatan jemaat dalam nyanyian).\n"
             "- Jelaskan dengan bahasa yang mudah dimengerti oleh tim liturgi dan majelis."
@@ -252,7 +330,7 @@ with right_col:
                 csv_text_short = csv_text
 
             full_prompt = f"""
-Berikut adalah seluruh data liturgi dari {SOURCE_LABEL}
+Berikut adalah seluruh data liturgi dari tabel {SOURCE_TABLE}
 dalam format CSV (dipotong bila terlalu panjang).
 
 INSTRUKSI SAYA:
@@ -266,7 +344,7 @@ DATA CSV:
 
             # Show temporary status while waiting for AI, then clear it
             status_placeholder = st.empty()
-            status_placeholder.info("Meminta jawaban dari AI...")
+            status_placeholder.info("Requesting answer from AI...")
 
             answer = ask_chatgpt(full_prompt)
 
@@ -276,18 +354,16 @@ DATA CSV:
             # Save to session state
             st.session_state["last_answer"] = answer
 
-            # Simpel history di memory (session_state)
-            st.session_state["qa_history"].insert(
-                0,  # prepend supaya terbaru di atas
-                {
-                    "id": len(st.session_state["qa_history"]) + 1,
-                    "asked_at": pd.Timestamp.utcnow(),
-                    "limit_rows": None,
-                    "user_instruction": user_instruction,
-                    "answer": answer,
-                    "model": "gpt-5-nano",
-                },
-            )
+            # Save to history table
+            try:
+                save_history(
+                    user_instruction=user_instruction,
+                    full_prompt=full_prompt,
+                    answer=answer,
+                    model_name="gpt-5.1",
+                )
+            except Exception as e:
+                st.error(f"Failed to save Q&A history: {e}")
 
         with a_col:
             # Always show AI Answer text area, even before first answer
@@ -296,3 +372,25 @@ DATA CSV:
                 value=st.session_state["last_answer"],
                 height=110,
             )
+
+        st.markdown("---")
+        st.markdown("### AI Q&A History")
+
+        # Only show a small visible area (~3 rows), scroll within table for more
+        history_limit = 50
+        try:
+            df_history = load_history(limit_rows=history_limit)
+            if not df_history.empty:
+                df_hist_display = df_history.copy()
+                # Show full answer content without truncation
+                st.dataframe(
+                    df_hist_display[
+                        ["id", "asked_at", "limit_rows", "user_instruction", "answer", "model"]
+                    ],
+                    width="stretch",
+                    height=130,  # compact height ~3 visible rows, scroll inside table
+                )
+            else:
+                st.info("No Q&A history available yet.")
+        except Exception as e:
+            st.error(f"Failed to load Q&A history: {e}")
